@@ -3,7 +3,7 @@
 ### bridge0 - LAN (not ! guest LAN)
 ### bcmeth1 - PUB internet
 
-. /mnt/Flash/tc/include
+. /mnt/Flash/extras/include
 
 case $1 in
     bridge0)
@@ -12,7 +12,7 @@ case $1 in
         ;;
     bcmeth1)
         # avoid link_local and ipv6 events
-        if isIPv4 $4 && isPubIP $4; then
+        if isIPv4 "$4" && isPubIP "$4"; then
             lg "DOWN PUB: $*"
         else
             exit 0
@@ -24,9 +24,9 @@ case $1 in
 esac
 
 # run if-down script
-if [ -x "$BASE/bin/if-down-$1.sh" ]; then
+if [ -x "$SHDIR/if-down-$1.sh" ]; then
     lg "Runnig if-down-$1.sh $*"
-    "$BASE/bin/if-down-$1.sh" $* > /dev/null 2>&1 &
+    "$SHDIR/if-down-$1.sh" $* > /dev/null 2>&1 &
 fi
 
 exit 0

@@ -1,26 +1,39 @@
 ### Variables management
 # include config variables
-. /mnt/Flash/tc/tc.conf
+. /mnt/Flash/extras.conf
 
-CONFDIR="$BASE/conf"
+FLASHDIR="${FLASHDIR:-/mnt/Flash/extras}"
+MEMDIR="${MEMDIR:-/mnt/Memory/extras}"
+LOGFILE="${LOGFILE:-/var/log/extras.log}"
+SHDIR="$FLASHDIR/bin"
+
+DISK_DEVICE=/dev/dk2
+DISK_MOUNT=/Volumes/dk2
+HDDDIR="$DISK_MOUNT/extras"
+
+BINDIR="$MEMDIR/bin"
+[ ! -d "$BINDIR" ] && mkdir -p "$BINDIR"
+
+CONFDIR="$FLASHDIR/conf"
 [ ! -d "$CONFDIR" ] && mkdir -p "$CONFDIR"
 
 # set run directory
-RUNDIR="$BASE/run"
+RUNDIR="$MEMDIR/run"
 [ ! -d "$RUNDIR" ] && mkdir -p "$RUNDIR"
 
 # set vars directory
-VARDIR="$BASE/vars/"
+VARDIR="$MEMDIR/vars/"
 [ ! -d "$VARDIR" ] && mkdir -p "$VARDIR"
 
 DHCPD_LEASES="$CONFDIR/dhcpd.leases"
+[ -f "$DHCPD_LEASES" ] || touch "$DHCPD_LEASES"
 DHCPD_CONF="$CONFDIR/dhcpd.conf"
 
 # read and assign variables from files
 read_vars() {
     for f in $VARDIR*; do
         [ -e "$f" ] && eval ${f#$VARDIR}="$(cat $f)"
-    done;
+    done
 }
 
 # remove all variables
@@ -54,7 +67,7 @@ name=$(basename "$0")
 # parameters
 #   $1 message to log
 lg() {
-    echo -e "$(date +"%Y.%m.%d %T") [$name] $1" >> "$LOG"
+    echo -e "$(date +"%Y.%m.%d %T") [$name] $1" >> "$LOGFILE"
 }
 
 ### common functions
@@ -65,9 +78,9 @@ lg() {
 isIPv4() {
     if [ x"$1" = x"$(echo $1 | sed -rn 's/^(([0-9]{1,3}\.){3}[0-9]{1,3})$/\1/p')" ]; then
         return 0
-    else 
+    else
         return 1
-    fi  
+    fi
 }
 
 # check if ip address is public
@@ -76,7 +89,7 @@ isIPv4() {
 #   $1 ip address
 isPubIP() {
     case $1 in
-        0.0.0.0|169.*)
+        0.0.0.0 | 169.*)
             return 1
             ;;
         *)
@@ -90,10 +103,11 @@ isPubIP() {
 #   $1 full file path
 getModTime() {
     if [ -e "$1" ]; then
-        ls -lT "$1" | ( read a a a a a t1 t2 t3 t4 a;
-            local t="$t1 $t2 $t3 $t4";
+        ls -lT "$1" | (
+            read a a a a a t1 t2 t3 t4 a
+            local t="$t1 $t2 $t3 $t4"
             echo $(date -d "$t" "+%s")
-            )
+        )
     else
         echo 0
     fi

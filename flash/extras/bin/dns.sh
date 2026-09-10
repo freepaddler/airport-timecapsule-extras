@@ -1,8 +1,8 @@
 #!/bin/sh
 ### tinydns management script
-. /mnt/Flash/tc/include
+. /mnt/Flash/extras/include
 
-DNSROOT="$BASE/tinydns"
+DNSROOT="$FLASHDIR/tinydns"
 DATA="$DNSROOT/root/data"
 DYNAMIC="$CONFDIR/dns.dynamic"
 STATIC="$CONFDIR/dns.static"
@@ -13,13 +13,13 @@ TTL=300
 CACHESIZE=8000000
 DATALIMIT=8388608
 
-# update root dns servers list 
+# update root dns servers list
 update_root() {
     curl -k https://www.internic.net/domain/named.root | sed -rn 's/^.*( A )[ ]*([0-9].*)$/\2/p' > "$CONFDIR/root.ip"
     lg "dns roots updated"
 }
 
-# install tinydns: copy binaries to /usr/sbin
+# install tinydns: copy binaries to $BINDIR
 setup() {
     lg "Request setup dns"
     # setup tinydns environment
@@ -33,7 +33,7 @@ setup() {
     if [ ! -x "$DNSROOT/run" ]; then
         echo '#!/bin/sh' > "$DNSROOT/run"
         echo 'exec 2>&1' >> "$DNSROOT/run"
-        echo 'exec envdir env /usr/sbin/tinydns' >> "$DNSROOT/run"
+        echo "exec envdir env $BINDIR/tinydns" >> "$DNSROOT/run"
         chmod +x "$DNSROOT/run"
     fi
     [ -d "$DNSROOT/log" ] || mkdir -p "$DNSROOT/log"
@@ -45,7 +45,7 @@ setup() {
     fi
     [ -f "$CONFDIR/root.ip" ] || update_root
     # check if binaries already exist
-    if [ ! -x /usr/sbin/tinydns -o ! -x /usr/sbin/tinydns-data ]; then
+    if [ ! -x "$BINDIR/tinydns" -o ! -x "$BINDIR/tinydns-data" ]; then
         lg "Need to install tinydns, wait for a minute"
         local j=0
         # cycle to wait up to 1 minute before mounting
@@ -53,20 +53,20 @@ setup() {
         # if mounting disk while it is running
         # we can get hdd error from TC and amber light
         local mnt_flag=0
-        while : ; do
+        while :; do
             # volume can be already mounted
             if [ -n "$(mount | sed -n '/\/Volumes\/dk2/p')" ]; then
                 lg "copying files"
-                cp -f "$DISTDIR/tinydns" /usr/sbin/ || lg "ERROR: can't copy tinydns"
-                cp -f "$DISTDIR/tinydns-data" /usr/sbin/ || lg "ERROR: can't copy tinydns-data"
+                cp -f "$DISTDIR/tinydns" "$BINDIR/" || lg "ERROR: can't copy tinydns"
+                cp -f "$DISTDIR/tinydns-data" "$BINDIR/" || lg "ERROR: can't copy tinydns-data"
                 break
-            elif [ $j -gt 12 ]; then 
+            elif [ $j -gt 12 ]; then
                 # create mount directory
                 [ -d /Volumes/dk2 ] || mkdir -p /Volumes/dk2
                 lg "mounting hdd"
                 mount_hfs /dev/dk2 /Volumes/dk2 && mnt_flag=1 || lg "ERROR: unable to mount /dev/dk2 /Volumes/dk2"
             else
-                j=$((j+1))
+                j=$((j + 1))
             fi
             sleep 5
         done
@@ -90,10 +90,10 @@ setup() {
     svc -u "/var/sv/tinydns"
     sleep 1
     r=$(netstat -an | sed -nr 's/(.*)(127.0.0.4.53)(.*)/\2/p')
-    if [ "$r" = "127.0.0.4.53" ]; then 
+    if [ "$r" = "127.0.0.4.53" ]; then
         lg "tinydns is running"
         # set global var DNS is working
-    else 
+    else
         lg "ERROR: tinydns is not running"
         # set global var DNS is NOT working
     fi
@@ -117,35 +117,39 @@ setup_dnscache() {
             if [ ! "$f" = "local" ] && [ ! "$f" = "@" ]; then
                 rm "$f"
             fi
-        done;
+        done
     )
     # add ZONE and RevZONE
-    for zone in $ZONE $RevZONE $RevZONE_guest; do
+    for zone in "$ZONE" "$RevZONE" "$RevZONE_guest"; do
         echo 127.0.0.4 > "$DNSCACHE/root/servers/$zone"
-    done;
+    done
     # set external networks served by dnscache
     for net in $DNS_ACCESS; do
         echo > "$DNSCACHE/root/ip/$net"
     done
 
     # add DNS_EXTERNAL zones
-    ( IFS=; echo $DNS_EXTERNAL |
-        while read ez; do 
-            (IFS=" "; echo $ez | 
-                while read z f; do
-                    if [ -n "$z" -a -n "$f" ]; then
-                    echo "$f" > "$DNSCACHE/root/servers/$z"
-                    fi
-                done
-            )
-        done
-    ) 
+    (
+        IFS=
+        echo "$DNS_EXTERNAL" |
+            while read ez; do
+                (
+                    IFS=" "
+                    echo "$ez" |
+                        while read z f; do
+                            if [ -n "$z" -a -n "$f" ]; then
+                                echo "$f" > "$DNSCACHE/root/servers/$z"
+                            fi
+                        done
+                )
+            done
+    )
 
     # create copy of original dns-update-script
-    if [ ! -x /sbin/dns-update-script-orig ]; then 
+    if [ ! -x /sbin/dns-update-script-orig ]; then
         cp -f /sbin/dns-update-script /sbin/dns-update-script-orig
     fi
-    # create modified copy of dns-update-script 
+    # create modified copy of dns-update-script
     # to deny update dns servers on each lease renew
     if [ ! -x /sbin/dns-update-script-mod ]; then
         sed -n '1,48 p' /sbin/dns-update-script > /sbin/dns-update-script-mod
@@ -156,14 +160,14 @@ setup_dnscache() {
 
     # setup forwarders
     #remove#chmod +w "$DNSCACHE/root/servers/@"
-    if [ "$DNS_FORWARD" = "root" ] && [ -s "$CONFDIR/root.ip" ] ; then 
-    # root for recursive resolver from root servers
+    if [ "$DNS_FORWARD" = "root" ] && [ -s "$CONFDIR/root.ip" ]; then
+        # root for recursive resolver from root servers
         cat "$CONFDIR/root.ip" > "$DNSCACHE/root/servers/@"
         echo 0 > "$DNSCACHE/env/FORWARDONLY"
         #chmod -w "$DNSCACHE/root/servers/@"
         cp -f /sbin/dns-update-script-mod /sbin/dns-update-script
     elif [ "$DNS_FORWARD" = "root" ]; then
-    # no root.ip file, use default setup
+        # no root.ip file, use default setup
         echo 1 > "$DNSCACHE/env/FORWARDONLY"
         cp -f /sbin/dns-update-script-orig /sbin/dns-update-script
         # get first string of /etc/resolve.conf
@@ -172,7 +176,7 @@ setup_dnscache() {
         # run it
         $dus
     elif [ -z "$DNS_FORWARD" ]; then
-    # empty is default TC setup
+        # empty is default TC setup
         echo 1 > "$DNSCACHE/env/FORWARDONLY"
         cp -f /sbin/dns-update-script-orig /sbin/dns-update-script
         # get first string of /etc/resolve.conf
@@ -181,15 +185,13 @@ setup_dnscache() {
         # run it
         $dus
     else
-    # list of predefined dns servers
+        # list of predefined dns servers
         echo 1 > "$DNSCACHE/env/FORWARDONLY"
         echo > "$DNSCACHE/root/servers/@"
-        for s in $DNS_FORWARD; do echo $s; done > "$DNSCACHE/root/servers/@"
+        for s in $DNS_FORWARD; do echo "$s"; done > "$DNSCACHE/root/servers/@"
         #remove#chmod -w "$DNSCACHE/root/servers/@"
         cp -f /sbin/dns-update-script-mod /sbin/dns-update-script
     fi
-
-    
 
     lg "Restarting dnscache"
     svc -t "$DNSCACHE"
@@ -218,23 +220,23 @@ ddns_add() {
     esac
     if [ -n "$z" ]; then
         # remove record by ip
-        ddns_del $1
-        if [ -z $2 ]; then
+        ddns_del "$1"
+        if [ -z "$2" ]; then
             # client-hostname is not defined
-            local l=$(echo $1 | sed -nr "s/.*\.([0-9]{1,3})$/\1/p")
-            local h=dhcp$l
+            local l=$(echo "$1" | sed -nr "s/.*\.([0-9]{1,3})$/\1/p")
+            local h="dhcp$l"
         else
             # client-hostname is defined
             local h=$2
         fi
         # if we already have record with same name
         # try to add postfix "-k" i.e. name-1.ZONE
-        local nh=$h.$z
+        local nh="$h.$z"
         local k=0
-        while check_dup_name $nh; do
-            k=$((k+1));
+        while check_dup_name "$nh"; do
+            k=$((k + 1))
             nh=$h-$k.$z
-        done;
+        done
         echo "=$nh:$1:$TTL" >> "$DYNAMIC"
     fi
 }
@@ -244,7 +246,7 @@ ddns_add() {
 #   $1 ip address
 ddns_del() {
     rm -rf "$tmp"
-    local i=$(echo $1 | sed -n 's/\./\\./gp')
+    local i=$(echo "$1" | sed -n 's/\./\\./gp')
     cat "$DYNAMIC" | sed "/\:$i\:/d" >> "$tmp"
     mv "$tmp" "$DYNAMIC"
 }
@@ -254,9 +256,10 @@ dns_mk() {
     # update DATA file
     cat "$STATIC" "$DYNAMIC" > "$DATA"
     # make data.cdb (if dns binaries installed)
-    if [ -x "/usr/sbin/tinydns-data" ]; then
-        ( cd "$DNSROOT/root"; 
-            /usr/sbin/tinydns-data || lg "ERROR: data file failure"
+    if [ -x "$BINDIR/tinydns-data" ]; then
+        (
+            cd "$DNSROOT/root"
+            "$BINDIR/tinydns-data" || lg "ERROR: data file failure"
         )
     fi
 }
@@ -265,12 +268,12 @@ dns_mk() {
 # parameters
 #   $1 fqdn
 check_dup_name() {
-    local h=$(echo $1 | sed -n 's/\./\\./gp') 
-    if [ -z "$(cat "$STATIC" "$DYNAMIC" | sed -nr  "/(^.|\:)$h\:/p")" ]; then
+    local h=$(echo "$1" | sed -n 's/\./\\./gp')
+    if [ -z "$(cat "$STATIC" "$DYNAMIC" | sed -nr "/(^.|\:)$h\:/p")" ]; then
         return 1
     else
         return 0
-    fi  
+    fi
 }
 
 # create zone definitions
@@ -290,7 +293,7 @@ Z$RevZONE:ns.$ZONE:root.$ZONE::900:90:86400:900:$TTL
 
 EOF
     if [ -n "$RevZONE_guest" ]; then
-    cat << EOF >> "$STATIC"
+        cat << EOF >> "$STATIC"
 #Guest zone
 Zguest.$ZONE:ns.guest.$ZONE:root.guest.$ZONE::900:90:86400:900:$TTL
 Z$RevZONE_guest:ns.guest.$ZONE:root.guest.$ZONE::900:90:86400:900:$TTL
@@ -306,9 +309,11 @@ EOF
         echo "+$ZONE:$TC_PUB:$TTL" >> "$STATIC"
     fi
     # add static records
-    ( IFS=; echo $DNS_STATIC |
-        while read l; do [ -n "$l" ] && echo $l; done; 
-        ) >> "$STATIC"
+    (
+        IFS=
+        echo "$DNS_STATIC" |
+            while read l; do [ -n "$l" ] && echo $l; done
+    ) >> "$STATIC"
 
     echo >> "$STATIC"
     echo "#DHCP fixed-address records" >> "$STATIC"
@@ -352,11 +357,11 @@ scan_leases() {
             "}")
                 case $l_action in
                     "active")
-                        ddns_add $l_ip $l_name
+                        ddns_add "$l_ip" "$l_name"
                         lg "ddns_add $l_ip $l_name"
                         ;;
                     "free")
-                        ddns_del $l_ip
+                        ddns_del "$l_ip"
                         lg "ddns_del $l_ip"
                         ;;
                 esac
@@ -376,8 +381,8 @@ scan_leases() {
             # client-hostname string
             "client-hostname")
                 # remove ; and quotes
-                l_name=$(echo ${b%\;} |sed 's/\"//g')
-                ;;   
+                l_name=$(echo "${b%\;}" | sed 's/\"//g')
+                ;;
             # lease binding state
             "binding")
                 # remove ;
@@ -394,8 +399,8 @@ ddns_update() {
     # stop to avoid duplicate run
     if [ -f "$RUNDIR/ddns-update.pid" ]; then
         lg "killing ddns_update"
-        kill $(cat "$RUNDIR/ddns-update.pid")
-        rm -f /var/run/tc_ddns-update.pid
+        kill "$(cat "$RUNDIR/ddns-update.pid")"
+        rm -f "$RUNDIR/ddns-update.pid"
     fi
     # if stop request than we're done
     [ "$1" = "stop" ] && exit 0
@@ -408,7 +413,7 @@ ddns_update() {
     # flush dynamic records
     echo > "$DYNAMIC"
     # main cycle
-    while : ; do
+    while :; do
         if [ -f "$DHCPD_LEASES" ] && [ $lastMod -lt $(getModTime "$DHCPD_LEASES") ]; then
             lastMod=$(getModTime "$DHCPD_LEASES")
             read_vars
@@ -416,7 +421,7 @@ ddns_update() {
             dns_mk
         fi
         sleep 10
-    done;
+    done
 }
 
 case $1 in
@@ -433,7 +438,7 @@ case $1 in
         update_root
         ;;
     ddns_update)
-        ddns_update $2
+        ddns_update "$2"
         ;;
 esac
 

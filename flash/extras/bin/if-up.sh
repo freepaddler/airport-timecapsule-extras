@@ -3,10 +3,10 @@
 ### bridge0 - LAN (not ! guest LAN)
 ### bcmeth1 - PUB internet
 
-. /mnt/Flash/tc/include
+. /mnt/Flash/extras/include
 
 # we're not interested in ipv6 events
-if isIPv4 $4; then
+if isIPv4 "$4"; then
     case $1 in
         bridge0)
             lg "UP LAN: $*"
@@ -16,7 +16,7 @@ if isIPv4 $4; then
             ;;
         bcmeth1)
             # avoid link_local ip actions
-            if isPubIP $4; then
+            if isPubIP "$4"; then
                 lg "UP PUB: $*"
             else
                 exit 0
@@ -31,9 +31,9 @@ else
 fi
 
 # run if-up script
-if [ -x "$BASE/bin/if-up-$1.sh" ]; then
+if [ -x "$SHDIR/if-up-$1.sh" ]; then
     lg "Runnig if-up-$1.sh $*"
-    "$BASE/bin/if-up-$1.sh" $* > /dev/null 2>&1 &
+    "$SHDIR/if-up-$1.sh" $* > /dev/null 2>&1 &
 fi
 
 exit 0

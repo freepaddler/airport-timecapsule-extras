@@ -2,7 +2,7 @@
 ### Tunnels setup script:
 ### gif tunnels + IPSEC transport + routes
 
-. /mnt/Flash/tc/include
+. /mnt/Flash/extras/include
 
 remove() {
     lg "Request remove tunnels"
@@ -11,8 +11,8 @@ remove() {
     setkey -FP
     # remove gif interfaces (routes delted as well)
     for i in $(ifconfig | sed -nr 's/^(gif[0-9]+).*/\1/p'); do
-        ifconfig $i destroy
-    done;
+        ifconfig "$i" destroy
+    done
     lg "Complete remove tunnels"
 }
 
@@ -35,14 +35,14 @@ setup() {
         for n in $(eval echo '$'${t}_NET); do
             route delete $n
             eval route add $n '$'${t}_IP
-        done;
+        done
         lg "Routes added for gif$k"
         eval echo 'add ''$'${t}_PUB' '$TC_PUB' esp ''$'${t}_SPI_IN' -E rijndael-cbc \"''$'${t}_KEY_IN'\"\;' | setkey -c
         eval echo 'add '$TC_PUB' ''$'${t}_PUB' esp ''$'${t}_SPI_OUT' -E rijndael-cbc \"''$'${t}_KEY_OUT'\"\;' | setkey -c
         eval echo 'spdadd '$TC_PUB/32' ''$'${t}_PUB'/32 ip4 -P out ipsec esp/transport/'$TC_PUB'-''$'${t}_PUB'/require\;' | setkey -c
         lg "IPSec setup for gif$k"
-        k=$((k+1));
-    done;
+        k=$((k + 1))
+    done
     lg "Complete setup tunnels"
 }
 
@@ -50,7 +50,7 @@ case $1 in
     remove)
         remove
         ;;
-    *) 
+    *)
         setup
         ;;
 esac

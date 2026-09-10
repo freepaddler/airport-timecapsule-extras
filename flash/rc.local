@@ -1,0 +1,6 @@
+#!/bin/sh
+
+EXTRAS_SETUP="/mnt/Flash/extras/setup.sh"
+
+[ -e "$EXTRAS_SETUP" ] && "$EXTRAS_SETUP"
+
