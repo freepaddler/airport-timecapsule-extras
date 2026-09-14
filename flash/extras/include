@@ -2,14 +2,19 @@
 # include config variables
 . /mnt/Flash/extras.conf
 
+DEBUG="${DEBUG:-0}"
+
 FLASHDIR="${FLASHDIR:-/mnt/Flash/extras}"
 MEMDIR="${MEMDIR:-/mnt/Memory/extras}"
 LOGFILE="${LOGFILE:-/var/log/extras.log}"
+LOGYESTERDAY="${LOGYESTERDAY:-/var/log/extras.yesterday}"
 SHDIR="$FLASHDIR/bin"
 
-DISK_DEVICE=/dev/dk2
-DISK_MOUNT=/Volumes/dk2
-HDDDIR="$DISK_MOUNT/extras"
+DISKS="${DISKS:-dk2}"
+DISK_IDLE_TIMEOUT="${DISK_IDLE_TIMEOUT:-300}"
+DISK_CHECK_TIMEOUT="${DISK_CHECK_TIMEOUT:-15}"
+
+HDDDIR="${HDDDIR:-/Volumes/dk2/ShareRoot/extras}"
 
 BINDIR="$MEMDIR/bin"
 [ ! -d "$BINDIR" ] && mkdir -p "$BINDIR"
@@ -70,6 +75,10 @@ lg() {
     echo -e "$(date +"%Y.%m.%d %T") [$name] $1" >> "$LOGFILE"
 }
 
+dbg() {
+    [ "$DEBUG" = "1" ] && lg "$1"
+}
+
 ### common functions
 
 # check if ip address is IPv4
@@ -111,6 +120,189 @@ getModTime() {
     else
         echo 0
     fi
+}
+## parce ACP properties
+
+STATE_START=-1
+STATE_END=0
+STATE_DISKS=1
+STATE_DISK=2
+STATE_USERS=2
+STATE_USER=1
+STATE_PARTITIONS=3
+STATE_PARTITION=4
+
+acpGetKey() {
+    echo "${1%%=*}"
+}
+acpGetValue() {
+    local v="${1#*=}"
+    v="${v#\"}"
+    v="${v%\"}"
+    echo "$v"
+}
+
+# hdd structure disk:partition:users
+hddNew() {
+    echo "::"
+}
+hddGetDisk() {
+    echo "${1%%:*}"
+}
+hddGetPartition() {
+    local v="${1#*:}"
+    echo "${v%%:*}"
+}
+hddGetUsers() {
+    echo "${1##*:}"
+}
+hddSetDisk() {
+    partition=$(hddGetPartition "$1")
+    users=$(hddGetUsers "$1")
+    printf "%s:%s:%s" "$2" "$partition" "$users"
+}
+hddSetPartition() {
+    disk=$(hddGetDisk "$1")
+    users=$(hddGetUsers "$1")
+    printf "%s:%s:%s" "$disk" "$2" "$users"
+}
+hddSetUsers() {
+    disk=$(hddGetDisk "$1")
+    partition=$(hddGetPartition "$1")
+    printf "%s:%s:%s" "$disk" "$partition" "$2"
+}
+
+getVolume() {
+    local partition=$1
+    local MaSt
+    local hdd
+    local state
+    local key
+    local value
+    local lastKey
+    local error
+
+    MaSt=$(/usr/bin/acp -A MaSt)
+    state=$STATE_START
+    echo "$MaSt" | while read -r line; do
+        error=""
+        key=$(acpGetKey "$line")
+        value=$(acpGetValue "$line")
+        case $line in
+            [)
+                case $state in
+                    "$STATE_START")
+                        state=$STATE_DISKS
+                        ;;
+                    "$STATE_DISK")
+                        if [ "$lastKey" = "partitions" ]; then
+                            state=$STATE_PARTITIONS
+                        else
+                            lg "invalid '[' in state disk"
+                        fi
+                        ;;
+                    *)
+                        error="parse error on '['"
+                        ;;
+                esac
+                ;;
+            "{")
+                case $state in
+                    "$STATE_DISKS")
+                        state=$STATE_DISK
+                        hdd=$(hddNew)
+                        ;;
+                    "$STATE_PARTITIONS")
+                        state=$STATE_PARTITION
+                        ;;
+                    *)
+                        error="parse error on '}'"
+                        ;;
+                esac
+                ;;
+            ])
+                case $state in
+                    "$STATE_DISKS")
+                        state=$STATE_END
+                        ;;
+                    "$STATE_PARTITIONS")
+                        state=$STATE_DISK
+                        ;;
+                    *)
+                        error="parse error on ']'"
+                        ;;
+                esac
+                ;;
+            "}")
+                case $state in
+                    "$STATE_DISK")
+                        state=$STATE_DISKS
+                        ;;
+                    "$STATE_PARTITION")
+                        state=$STATE_PARTITIONS
+                        ;;
+                    *)
+                        error="parse error on '}'"
+                        ;;
+                esac
+                ;;
+            users=*)
+                if [ "$state" = "$STATE_PARTITION" ] && [ -n "$(hddGetPartition "$hdd")" ]; then
+                    hdd=$(hddSetUsers "$hdd" "$value")
+                fi
+                ;;
+            deviceName=*)
+                case $state in
+                    "$STATE_DISK")
+                        hdd=$(hddSetDisk "$hdd" "$value")
+                        ;;
+                    "$STATE_PARTITION")
+                        if [ "$partition" = "$value" ]; then
+                            hdd=$(hddSetPartition "$hdd" "$value")
+                        fi
+                        ;;
+                    *)
+                        error="parse error on 'deviceName'"
+                        ;;
+                esac
+                ;;
+        esac
+        if [ -n "$error" ]; then
+            lg "ERROR: MaSt parse: $(printf "state: %s, key: %s, value: %s, lastKey: %s, error: %s\n" "$state" "$key" "$value" "$lastKey" "$error")"
+            return
+        fi
+        lastKey="$key"
+        if [ -n "$(hddGetUsers "$hdd")" ]; then
+            echo "$hdd"
+            return
+        fi
+        if [ "$state" = "$STATE_END" ]; then
+            return
+        fi
+    done
+}
+
+getVolumePath() {
+    local v="${1#/Volumes/}"
+    v="${v%%/*}"
+    printf "/Volumes/%s\n" "$v"
+}
+
+volumeIsMounted() {
+    path=$(getVolumePath "$1")
+    set -- $(df -P "$path" 2> /dev/null | tail -1)
+    [ "$6" = "$path" ]
+}
+
+waitMount() {
+    while :; do
+        if volumeIsMounted "$1"; then
+            ls "$1" > /dev/null
+            return
+        fi
+        lg "waiting volume $1 to be mounted..."
+        sleep "$DISK_CHECK_TIMEOUT"
+    done
 }
 
 read_vars

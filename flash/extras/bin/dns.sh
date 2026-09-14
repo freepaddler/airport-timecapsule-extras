@@ -7,7 +7,6 @@ DATA="$DNSROOT/root/data"
 DYNAMIC="$CONFDIR/dns.dynamic"
 STATIC="$CONFDIR/dns.static"
 tmp="$DNSROOT/temp"
-DISTDIR="/Volumes/dk2/ShareRoot/tinydns-earmv4-bin"
 DNSCACHE="/var/sv/dnscache"
 TTL=300
 CACHESIZE=8000000
@@ -30,51 +29,26 @@ setup() {
     echo 0 > "$DNSROOT/env/UID"
     echo "127.0.0.4" > "$DNSROOT/env/IP"
     echo "$DNSROOT/root" > "$DNSROOT/env/ROOT"
-    if [ ! -x "$DNSROOT/run" ]; then
-        echo '#!/bin/sh' > "$DNSROOT/run"
-        echo 'exec 2>&1' >> "$DNSROOT/run"
-        echo "exec envdir env $BINDIR/tinydns" >> "$DNSROOT/run"
-        chmod +x "$DNSROOT/run"
-    fi
+
+    echo '#!/bin/sh' > "$DNSROOT/run"
+    echo 'exec 2>&1' >> "$DNSROOT/run"
+    echo "exec envdir env $BINDIR/tinydns" >> "$DNSROOT/run"
+    chmod +x "$DNSROOT/run"
+
     [ -d "$DNSROOT/log" ] || mkdir -p "$DNSROOT/log"
-    if [ ! -x "$DNSROOT/log/run" ]; then
-        echo '#!/bin/sh' > "$DNSROOT/log/run"
-        echo 'exec >/dev/null' >> "$DNSROOT/log/run"
-        echo 'exec cat -' >> "$DNSROOT/log/run"
-        chmod +x "$DNSROOT/log/run"
-    fi
+    echo '#!/bin/sh' > "$DNSROOT/log/run"
+    echo 'exec >/dev/null' >> "$DNSROOT/log/run"
+    echo 'exec cat -' >> "$DNSROOT/log/run"
+    chmod +x "$DNSROOT/log/run"
+
     [ -f "$CONFDIR/root.ip" ] || update_root
     # check if binaries already exist
     if [ ! -x "$BINDIR/tinydns" -o ! -x "$BINDIR/tinydns-data" ]; then
-        lg "Need to install tinydns, wait for a minute"
-        local j=0
-        # cycle to wait up to 1 minute before mounting
-        # after TC restart fcsk quick may be running
-        # if mounting disk while it is running
-        # we can get hdd error from TC and amber light
-        local mnt_flag=0
-        while :; do
-            # volume can be already mounted
-            if [ -n "$(mount | sed -n '/\/Volumes\/dk2/p')" ]; then
-                lg "copying files"
-                cp -f "$DISTDIR/tinydns" "$BINDIR/" || lg "ERROR: can't copy tinydns"
-                cp -f "$DISTDIR/tinydns-data" "$BINDIR/" || lg "ERROR: can't copy tinydns-data"
-                break
-            elif [ $j -gt 12 ]; then
-                # create mount directory
-                [ -d /Volumes/dk2 ] || mkdir -p /Volumes/dk2
-                lg "mounting hdd"
-                mount_hfs /dev/dk2 /Volumes/dk2 && mnt_flag=1 || lg "ERROR: unable to mount /dev/dk2 /Volumes/dk2"
-            else
-                j=$((j + 1))
-            fi
-            sleep 5
-        done
-    fi
-    # umount hdd if we mounted it
-    if [ ${mnt_flag:-0} -eq 1 ]; then
-        lg "umounting hdd"
-        umount /Volumes/dk2 && rmdir /Volumes/dk2 || lg "ERROR: unable to umount /Volumes/dk2"
+        lg "Need to install tinydns..."
+        waitMount "$HDDDIR/bin"
+        lg "copying files from $HDDDIR/bin/"
+        cp -f "$HDDDIR/bin/tinydns" "$BINDIR/" || lg "ERROR: can't copy tinydns"
+        cp -f "$HDDDIR/bin/tinydns-data" "$BINDIR/" || lg "ERROR: can't copy tinydns-data"
     fi
     # ip for tinydns
     lg "creating ip alias 127.0.0.4"
@@ -362,7 +336,7 @@ scan_leases() {
                         ;;
                     "free")
                         ddns_del "$l_ip"
-                        lg "ddns_del $l_ip"
+                        dbg "ddns_del $l_ip"
                         ;;
                 esac
                 # clean lease vars

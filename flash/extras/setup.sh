@@ -23,6 +23,14 @@ sleep 1
 # save pid in file
 ps x -o pid,command | sed -nr 's|(([^ ]+ ){1})/usr/sbin/ifwatchd.*|\1|p' > "$RUNDIR/ifwatchd.pid"
 
+# permanent volumes mount
+"$SHDIR/disk-watchd.sh" &
+echo "$!" > "$RUNDIR/disk-watchd.pid"
+
+# log rotation
+"$SHDIR/log-watchd.sh" &
+echo "$!" > "$RUNDIR/log-watchd.pid"
+
 lg "Complete run setup.sh"
 
 exit 0
