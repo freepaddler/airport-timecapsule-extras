@@ -8,12 +8,12 @@
 case $1 in
     bridge0)
         # down event happens with ipv6 :(
-        lg "DOWN LAN: $*"
+        log "DOWN LAN: $*"
         ;;
     bcmeth1)
         # avoid link_local and ipv6 events
         if isIPv4 "$4" && isPubIP "$4"; then
-            lg "DOWN PUB: $*"
+            log "DOWN PUB: $*"
         else
             exit 0
         fi
@@ -24,9 +24,9 @@ case $1 in
 esac
 
 # run if-down script
-if [ -x "$SHDIR/if-down-$1.sh" ]; then
-    lg "Runnig if-down-$1.sh $*"
-    "$SHDIR/if-down-$1.sh" $* > /dev/null 2>&1 &
+if [ -x "$SH_DIR/if-down-$1.sh" ]; then
+    log "Runnig if-down-$1.sh $*"
+    "$SH_DIR/if-down-$1.sh" $* > /dev/null 2>&1 &
 fi
 
 exit 0

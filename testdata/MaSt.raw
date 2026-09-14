@@ -1,0 +1,53 @@
+
+[
+    {
+        product="TEST-HDD-0001"
+        blockSize=512
+        deviceName="wd0"
+        size=2861588
+        vendor="Example HDD Vendor"
+        partitions=
+        [
+            {
+                format="hfs"
+                sizeUsed=1511551
+                deviceName="dk2"
+                size=2859540
+                users=2
+                name="TEST_DATA"
+                sizeFree=1347989
+                uuid=11111111 11114111 81111111 11111111 |^^^^^^A^^^^^^^^^| (16 bytes)
+            }
+        ]
+        builtin=true
+        uuid=22222222 22224222 82222222 22222222 |""""""B"^"""""""| (16 bytes)
+        smartStatus="verified"
+        info="Disk 1"
+        revision="TEST"
+        softDisconnected=false
+    }
+    {
+        product="Example USB Drive"
+        blockSize=512
+        deviceName="sd0"
+        size=29340
+        vendor="USB"
+        partitions=
+        [
+            {
+                format="msdos"
+                sizeUsed=24
+                deviceName="dk4"
+                size=31
+                users=0
+                name="TEST_USB"
+                sizeFree=7
+                uuid=33333333 33334333 83333333 33333333 |333333C3^3333333| (16 bytes)
+            }
+        ]
+        uuid=44444444 44444444 84444444 44444444 |DDDDDDDD^DDDDDDD| (16 bytes)
+        info="Disk 2"
+        revision="1.00"
+        softDisconnected=false
+    }
+]

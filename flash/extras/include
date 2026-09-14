@@ -1,87 +1,100 @@
-### Variables management
-# include config variables
+# Shared definitions and helpers for extras components.
+# Sourced by scripts through the fixed path /mnt/Flash/extras/include.
+# Sourcing also prepares directories, ensures the leases file exists and loads
+# runtime values. These existing initialization actions are retained here.
+
+### Configuration
+# Load functional user settings; internal paths and constants are assigned below.
 . /mnt/Flash/extras.conf
 
-DEBUG="${DEBUG:-0}"
+### Storage paths and shared directories
+# Flash: scripts and persistent configuration. HDD: stored binary payload.
+# Memory: executable copies, process IDs and shared runtime values.
+FLASH_DIR="/mnt/Flash/extras"
+MEM_DIR="/mnt/Memory/extras"
+HDD_MOUNT="/Volumes/dk2"
+SMB_ROOT="$HDD_MOUNT/ShareRoot"
+HDD_DIR="$HDD_MOUNT/extras"
+SH_DIR="$FLASH_DIR/bin"
 
-FLASHDIR="${FLASHDIR:-/mnt/Flash/extras}"
-MEMDIR="${MEMDIR:-/mnt/Memory/extras}"
-LOGFILE="${LOGFILE:-/var/log/extras.log}"
-LOGYESTERDAY="${LOGYESTERDAY:-/var/log/extras.yesterday}"
-SHDIR="$FLASHDIR/bin"
+BIN_DIR="$MEM_DIR/bin"
+[ ! -d "$BIN_DIR" ] && mkdir -p "$BIN_DIR"
 
-DISKS="${DISKS:-dk2}"
-DISK_IDLE_TIMEOUT="${DISK_IDLE_TIMEOUT:-300}"
-DISK_CHECK_TIMEOUT="${DISK_CHECK_TIMEOUT:-15}"
+CONF_DIR="$FLASH_DIR/conf"
+[ ! -d "$CONF_DIR" ] && mkdir -p "$CONF_DIR"
 
-HDDDIR="${HDDDIR:-/Volumes/dk2/ShareRoot/extras}"
+RUN_DIR="$MEM_DIR/run"
+[ ! -d "$RUN_DIR" ] && mkdir -p "$RUN_DIR"
 
-BINDIR="$MEMDIR/bin"
-[ ! -d "$BINDIR" ] && mkdir -p "$BINDIR"
+# Keep the trailing slash: runtime-value helpers concatenate filenames to it.
+VAR_DIR="$MEM_DIR/vars/"
+[ ! -d "$VAR_DIR" ] && mkdir -p "$VAR_DIR"
 
-CONFDIR="$FLASHDIR/conf"
-[ ! -d "$CONFDIR" ] && mkdir -p "$CONFDIR"
-
-# set run directory
-RUNDIR="$MEMDIR/run"
-[ ! -d "$RUNDIR" ] && mkdir -p "$RUNDIR"
-
-# set vars directory
-VARDIR="$MEMDIR/vars/"
-[ ! -d "$VARDIR" ] && mkdir -p "$VARDIR"
-
-DHCPD_LEASES="$CONFDIR/dhcpd.leases"
+### DHCP files shared with DNS
+# DHCP uses these files; DNS reads them to build local records.
+DHCPD_LEASES="$CONF_DIR/dhcpd.leases"
 [ -f "$DHCPD_LEASES" ] || touch "$DHCPD_LEASES"
-DHCPD_CONF="$CONFDIR/dhcpd.conf"
+DHCPD_CONF="$CONF_DIR/dhcpd.conf"
 
-# read and assign variables from files
-read_vars() {
-    for f in $VARDIR*; do
-        [ -e "$f" ] && eval ${f#$VARDIR}="$(cat $f)"
-    done
-}
+### Logging and rotation paths
+DEBUG="${DEBUG:-0}"
+# Functional settings may be overridden in extras.conf.
+LOG_FILE_SIZE="${LOG_FILE_SIZE:-512}"
+LOG_FILE_SIZE_CHECK="${LOG_FILE_SIZE_CHECK:-14400}"
+LOG_FILE="/var/log/extras.log"
+LOG_FILE_OLD="$LOG_FILE.old"
 
-# remove all variables
-flush_vars() {
-    # unassign existing vars
-    for f in in $VARDIR*; do
-        eval ${f#$VARDIR}=
-    done
-    # delete var files
-    rm -f $VARDIR*
-    read_vars
-}
-
-# set variable
-set_var() {
-    echo "$2" > "$VARDIR$1"
-    read_vars
-}
-
-# delete variable
-del_var() {
-    rm -f "$VARDIR$1"
-    read_vars
-}
-
-### logging settings
 # name of logging script
 name=$(basename "$0")
 
 # function to log message to log file
 # parameters
 #   $1 message to log
-lg() {
-    echo -e "$(date +"%Y.%m.%d %T") [$name] $1" >> "$LOGFILE"
+log() {
+    echo -e "$(date +"%Y.%m.%d %T") [$name] $1" >> "$LOG_FILE"
 }
 
-dbg() {
-    [ "$DEBUG" = "1" ] && lg "$1"
+# Debug messages use the same log, only when DEBUG=1.
+debug() {
+    [ "$DEBUG" = "1" ] && log "$1"
 }
 
-### common functions
+### Shared runtime values
+# Exchanged between interface handlers and component scripts through VAR_DIR.
+# Load shared runtime values: each filename is a variable name.
+read_vars() {
+    for f in $VAR_DIR*; do
+        [ -e "$f" ] && eval "${f#$VAR_DIR}=\$(cat \"\$f\")"
+    done
+}
 
-# check if ip address is IPv4
+# Clear values managed through VAR_DIR and remove their files.
+flush_vars() {
+    # unassign existing vars
+    for f in in $VAR_DIR*; do
+        eval ${f#$VAR_DIR}=
+    done
+    # delete var files
+    rm -f $VAR_DIR*
+    read_vars
+}
+
+# Store a runtime value and reload the shared values.
+# $1: variable name; $2: value.
+set_var() {
+    printf '%s\n' "$2" > "$VAR_DIR$1"
+    read_vars
+}
+
+# Remove a stored runtime value and reload the remaining values.
+# $1: variable name.
+del_var() {
+    rm -f "$VAR_DIR$1"
+    read_vars
+}
+
+### Network address helpers
+# Check dotted IPv4 syntax; octet ranges are not validated.
 # parameters
 #   $1 ip address
 isIPv4() {
@@ -92,8 +105,8 @@ isIPv4() {
     fi
 }
 
-# check if ip address is public
-# to run on external interface
+# Filter unusable addresses in external-interface event handlers.
+# This excludes 0.0.0.0 and 169.*, not all private IPv4 ranges.
 # parameters
 #   $1 ip address
 isPubIP() {
@@ -107,6 +120,7 @@ isPubIP() {
     esac
 }
 
+### File metadata helpers
 # get file modification time
 # parameters
 #   $1 full file path
@@ -121,17 +135,9 @@ getModTime() {
         echo 0
     fi
 }
-## parce ACP properties
 
-STATE_START=-1
-STATE_END=0
-STATE_DISKS=1
-STATE_DISK=2
-STATE_USERS=2
-STATE_USER=1
-STATE_PARTITIONS=3
-STATE_PARTITION=4
-
+### Raw ACP property helpers
+# Split a raw ACP key=value line; remove surrounding value quotes.
 acpGetKey() {
     echo "${1%%=*}"
 }
@@ -142,167 +148,87 @@ acpGetValue() {
     echo "$v"
 }
 
-# hdd structure disk:partition:users
-hddNew() {
-    echo "::"
-}
-hddGetDisk() {
-    echo "${1%%:*}"
-}
-hddGetPartition() {
-    local v="${1#*:}"
-    echo "${v%%:*}"
-}
-hddGetUsers() {
-    echo "${1##*:}"
-}
-hddSetDisk() {
-    partition=$(hddGetPartition "$1")
-    users=$(hddGetUsers "$1")
-    printf "%s:%s:%s" "$2" "$partition" "$users"
-}
-hddSetPartition() {
-    disk=$(hddGetDisk "$1")
-    users=$(hddGetUsers "$1")
-    printf "%s:%s:%s" "$disk" "$2" "$users"
-}
-hddSetUsers() {
-    disk=$(hddGetDisk "$1")
-    partition=$(hddGetPartition "$1")
-    printf "%s:%s:%s" "$disk" "$partition" "$2"
-}
-
+### ACP MaSt volume discovery
+# $1: partition device name, e.g. dk2.
+# Output: disk:partition:users, e.g. wd0:dk2:1.
+# users is the diskd volume-use count, not a list of SMB accounts.
 getVolume() {
-    local partition=$1
-    local MaSt
-    local hdd
-    local state
-    local key
-    local value
-    local lastKey
-    local error
+    local partition="$1"
+    local MaSt line value
+    local depth=0
+    local disk="" volume="" users=""
 
-    MaSt=$(/usr/bin/acp -A MaSt)
-    state=$STATE_START
-    echo "$MaSt" | while read -r line; do
-        error=""
-        key=$(acpGetKey "$line")
-        value=$(acpGetValue "$line")
-        case $line in
-            [)
-                case $state in
-                    "$STATE_START")
-                        state=$STATE_DISKS
-                        ;;
-                    "$STATE_DISK")
-                        if [ "$lastKey" = "partitions" ]; then
-                            state=$STATE_PARTITIONS
-                        else
-                            lg "invalid '[' in state disk"
-                        fi
-                        ;;
-                    *)
-                        error="parse error on '['"
-                        ;;
-                esac
-                ;;
+    MaSt=$(/usr/bin/acp -A MaSt) || return 1
+
+    # MaSt objects: level 1 is a disk, level 2 is a partition.
+    printf '%s\n' "$MaSt" | while read -r line; do
+        case "$line" in
             "{")
-                case $state in
-                    "$STATE_DISKS")
-                        state=$STATE_DISK
-                        hdd=$(hddNew)
-                        ;;
-                    "$STATE_PARTITIONS")
-                        state=$STATE_PARTITION
-                        ;;
-                    *)
-                        error="parse error on '}'"
-                        ;;
-                esac
-                ;;
-            ])
-                case $state in
-                    "$STATE_DISKS")
-                        state=$STATE_END
-                        ;;
-                    "$STATE_PARTITIONS")
-                        state=$STATE_DISK
-                        ;;
-                    *)
-                        error="parse error on ']'"
-                        ;;
+                depth=$((depth + 1))
+                case "$depth" in
+                    1) disk="" ;;
+                    2) volume=""; users="" ;;
                 esac
                 ;;
             "}")
-                case $state in
-                    "$STATE_DISK")
-                        state=$STATE_DISKS
-                        ;;
-                    "$STATE_PARTITION")
-                        state=$STATE_PARTITIONS
-                        ;;
-                    *)
-                        error="parse error on '}'"
-                        ;;
+                if [ "$depth" -eq 2 ] &&
+                   [ "$volume" = "$partition" ] &&
+                   [ -n "$disk" ]; then
+                    case "$users" in
+                        ""|*[!0-9]*) return 1 ;;
+                    esac
+
+                    printf '%s:%s:%s\n' "$disk" "$volume" "$users"
+                    return 0
+                fi
+                depth=$((depth - 1))
+                ;;
+            deviceName=*)
+                value="${line#*=}"
+                value="${value#\"}"
+                value="${value%\"}"
+
+                case "$depth" in
+                    1) disk="$value" ;;
+                    2) volume="$value" ;;
                 esac
                 ;;
             users=*)
-                if [ "$state" = "$STATE_PARTITION" ] && [ -n "$(hddGetPartition "$hdd")" ]; then
-                    hdd=$(hddSetUsers "$hdd" "$value")
+                if [ "$depth" -eq 2 ]; then
+                    users="${line#*=}"
                 fi
                 ;;
-            deviceName=*)
-                case $state in
-                    "$STATE_DISK")
-                        hdd=$(hddSetDisk "$hdd" "$value")
-                        ;;
-                    "$STATE_PARTITION")
-                        if [ "$partition" = "$value" ]; then
-                            hdd=$(hddSetPartition "$hdd" "$value")
-                        fi
-                        ;;
-                    *)
-                        error="parse error on 'deviceName'"
-                        ;;
-                esac
-                ;;
         esac
-        if [ -n "$error" ]; then
-            lg "ERROR: MaSt parse: $(printf "state: %s, key: %s, value: %s, lastKey: %s, error: %s\n" "$state" "$key" "$value" "$lastKey" "$error")"
-            return
-        fi
-        lastKey="$key"
-        if [ -n "$(hddGetUsers "$hdd")" ]; then
-            echo "$hdd"
-            return
-        fi
-        if [ "$state" = "$STATE_END" ]; then
-            return
-        fi
     done
 }
 
-getVolumePath() {
-    local v="${1#/Volumes/}"
-    v="${v%%/*}"
-    printf "/Volumes/%s\n" "$v"
-}
+### Volume mount checks and waiting
+# DISKS lists partition devices watched by disk-watchd.sh. Timeouts are seconds.
+DISKS="dk2"
+DISK_IDLE_TIMEOUT="300"
+DISK_CHECK_TIMEOUT="15"
 
+# $1: exact mount point, without a trailing slash (except /).
+# A directory inside a mounted filesystem does not count as a mount point.
 volumeIsMounted() {
-    path=$(getVolumePath "$1")
+    local path="$1"
     set -- $(df -P "$path" 2> /dev/null | tail -1)
     [ "$6" = "$path" ]
 }
 
+# $1: exact mount point. Consumers check their own files after this wait.
+# Mounting itself is handled by disk-watchd.sh, not by this function.
 waitMount() {
     while :; do
         if volumeIsMounted "$1"; then
-            ls "$1" > /dev/null
-            return
+            return 0
         fi
-        lg "waiting volume $1 to be mounted..."
+        log "waiting volume $1 to be mounted..."
         sleep "$DISK_CHECK_TIMEOUT"
     done
 }
 
+
+### Initial runtime-state load
+# Preserve automatic loading for every script that sources this file.
 read_vars

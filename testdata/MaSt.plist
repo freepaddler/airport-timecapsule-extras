@@ -1,0 +1,134 @@
+MaSt=<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<array>
+        <dict>
+                <key>blockSize</key>
+                <integer>512</integer>
+
+                <key>builtin</key>
+                <true/>
+
+                <key>deviceName</key>
+                <string>wd0</string>
+
+                <key>info</key>
+                <string>Disk 1</string>
+
+                <key>partitions</key>
+                <array>
+                        <dict>
+                                <key>deviceName</key>
+                                <string>dk2</string>
+
+                                <key>format</key>
+                                <string>hfs</string>
+
+                                <key>name</key>
+                                <string>TEST_DATA</string>
+
+                                <key>size</key>
+                                <integer>2859540</integer>
+
+                                <key>sizeFree</key>
+                                <integer>1347989</integer>
+
+                                <key>sizeUsed</key>
+                                <integer>1511551</integer>
+
+                                <key>users</key>
+                                <integer>1</integer>
+
+                                <key>uuid</key>
+                                <data>
+                                ERERERERQRGBEREREREREQ==
+                                </data>
+                        </dict>
+                </array>
+
+                <key>product</key>
+                <string>TEST-HDD-0001</string>
+
+                <key>revision</key>
+                <string>TEST</string>
+
+                <key>size</key>
+                <integer>2861588</integer>
+
+                <key>smartStatus</key>
+                <string>verified</string>
+
+                <key>softDisconnected</key>
+                <false/>
+
+                <key>uuid</key>
+                <data>
+                IiIiIiIiQiKCIiIiIiIiIg==
+                </data>
+
+                <key>vendor</key>
+                <string>Example HDD Vendor</string>
+        </dict>
+        <dict>
+                <key>blockSize</key>
+                <integer>512</integer>
+
+                <key>deviceName</key>
+                <string>sd0</string>
+
+                <key>info</key>
+                <string>Disk 2</string>
+
+                <key>partitions</key>
+                <array>
+                        <dict>
+                                <key>deviceName</key>
+                                <string>dk4</string>
+
+                                <key>format</key>
+                                <string>msdos</string>
+
+                                <key>name</key>
+                                <string>TEST_USB</string>
+
+                                <key>size</key>
+                                <integer>31</integer>
+
+                                <key>sizeFree</key>
+                                <integer>7</integer>
+
+                                <key>sizeUsed</key>
+                                <integer>24</integer>
+
+                                <key>users</key>
+                                <integer>0</integer>
+
+                                <key>uuid</key>
+                                <data>
+                                MzMzMzMzQzODMzMzMzMzMw==
+                                </data>
+                        </dict>
+                </array>
+
+                <key>product</key>
+                <string>Example USB Drive</string>
+
+                <key>revision</key>
+                <string>1.00</string>
+
+                <key>size</key>
+                <integer>29340</integer>
+
+                <key>softDisconnected</key>
+                <false/>
+
+                <key>uuid</key>
+                <data>
+                RERERERERESERERERERERA==
+                </data>
+
+                <key>vendor</key>
+                <string>USB</string>
+        </dict>
+</array>
+</plist>

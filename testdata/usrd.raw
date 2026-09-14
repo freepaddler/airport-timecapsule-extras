@@ -1,0 +1,20 @@
+{
+    users=
+    [
+        {
+            password="Example-Only-Password-1"
+            fileSharingAccess=0
+            name="example-user"
+        }
+        {
+            password="Example-Only-Password-2"
+            fileSharingAccess=1
+            name="example-reader"
+        }
+        {
+            password="p"
+            fileSharingAccess=2
+            name="noaccess"
+        }
+    ]
+}

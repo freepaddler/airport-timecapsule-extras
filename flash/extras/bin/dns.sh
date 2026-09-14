@@ -2,10 +2,10 @@
 ### tinydns management script
 . /mnt/Flash/extras/include
 
-DNSROOT="$FLASHDIR/tinydns"
+DNSROOT="$FLASH_DIR/tinydns"
 DATA="$DNSROOT/root/data"
-DYNAMIC="$CONFDIR/dns.dynamic"
-STATIC="$CONFDIR/dns.static"
+DYNAMIC="$CONF_DIR/dns.dynamic"
+STATIC="$CONF_DIR/dns.static"
 tmp="$DNSROOT/temp"
 DNSCACHE="/var/sv/dnscache"
 TTL=300
@@ -14,13 +14,13 @@ DATALIMIT=8388608
 
 # update root dns servers list
 update_root() {
-    curl -k https://www.internic.net/domain/named.root | sed -rn 's/^.*( A )[ ]*([0-9].*)$/\2/p' > "$CONFDIR/root.ip"
-    lg "dns roots updated"
+    curl -k https://www.internic.net/domain/named.root | sed -rn 's/^.*( A )[ ]*([0-9].*)$/\2/p' > "$CONF_DIR/root.ip"
+    log "dns roots updated"
 }
 
-# install tinydns: copy binaries to $BINDIR
+# install tinydns: copy binaries to $BIN_DIR
 setup() {
-    lg "Request setup dns"
+    log "Request setup dns"
     # setup tinydns environment
     [ -d "$DNSROOT" ] || mkdir -p "$DNSROOT"
     [ -d "$DNSROOT/root" ] || mkdir -p "$DNSROOT/root"
@@ -32,7 +32,7 @@ setup() {
 
     echo '#!/bin/sh' > "$DNSROOT/run"
     echo 'exec 2>&1' >> "$DNSROOT/run"
-    echo "exec envdir env $BINDIR/tinydns" >> "$DNSROOT/run"
+    echo "exec envdir env $BIN_DIR/tinydns" >> "$DNSROOT/run"
     chmod +x "$DNSROOT/run"
 
     [ -d "$DNSROOT/log" ] || mkdir -p "$DNSROOT/log"
@@ -41,45 +41,54 @@ setup() {
     echo 'exec cat -' >> "$DNSROOT/log/run"
     chmod +x "$DNSROOT/log/run"
 
-    [ -f "$CONFDIR/root.ip" ] || update_root
+    [ -f "$CONF_DIR/root.ip" ] || update_root
     # check if binaries already exist
-    if [ ! -x "$BINDIR/tinydns" -o ! -x "$BINDIR/tinydns-data" ]; then
-        lg "Need to install tinydns..."
-        waitMount "$HDDDIR/bin"
-        lg "copying files from $HDDDIR/bin/"
-        cp -f "$HDDDIR/bin/tinydns" "$BINDIR/" || lg "ERROR: can't copy tinydns"
-        cp -f "$HDDDIR/bin/tinydns-data" "$BINDIR/" || lg "ERROR: can't copy tinydns-data"
+    if [ ! -x "$BIN_DIR/tinydns" -o ! -x "$BIN_DIR/tinydns-data" ]; then
+        log "Need to install tinydns..."
+        waitMount "$HDD_MOUNT"
+        if [ ! -d "$HDD_DIR/bin" ]; then
+            log "ERROR: missing binary directory $HDD_DIR/bin"
+            return 1
+        fi
+        # Access the source directory before copying from the HDD.
+        if ! ls "$HDD_DIR/bin" > /dev/null; then
+            log "ERROR: can't read $HDD_DIR/bin"
+            return 1
+        fi
+        log "copying files from $HDD_DIR/bin/"
+        cp -f "$HDD_DIR/bin/tinydns" "$BIN_DIR/" || log "ERROR: can't copy tinydns"
+        cp -f "$HDD_DIR/bin/tinydns-data" "$BIN_DIR/" || log "ERROR: can't copy tinydns-data"
     fi
     # ip for tinydns
-    lg "creating ip alias 127.0.0.4"
+    log "creating ip alias 127.0.0.4"
     ifconfig lo0 alias 127.0.0.4
     # make link for svcscan supervised service
     if [ ! -L /var/sv/tinydns ]; then
-        lg "linking tinydns to svc"
+        log "linking tinydns to svc"
         ln -fs "$DNSROOT" /var/sv/tinydns
     fi
     # normally 5 seconds should be enough, but...
-    lg "Wait 7s and check if tynydns is running"
+    log "Wait 7s and check if tynydns is running"
     sleep 6
     svc -u "/var/sv/tinydns"
     sleep 1
     r=$(netstat -an | sed -nr 's/(.*)(127.0.0.4.53)(.*)/\2/p')
     if [ "$r" = "127.0.0.4.53" ]; then
-        lg "tinydns is running"
+        log "tinydns is running"
         # set global var DNS is working
     else
-        lg "ERROR: tinydns is not running"
+        log "ERROR: tinydns is not running"
         # set global var DNS is NOT working
     fi
     # all zone files are alredy created
     # let them go live
     dns_mk
-    lg "Complete setup dns"
+    log "Complete setup dns"
 }
 
 # setup resolver
 setup_dnscache() {
-    lg "Request setup dnscache"
+    log "Request setup dnscache"
     # increase cache size
     echo $CACHESIZE > "$DNSCACHE/env/CACHESIZE"
     echo $DATALIMIT > "$DNSCACHE/env/DATALIMIT"
@@ -134,9 +143,9 @@ setup_dnscache() {
 
     # setup forwarders
     #remove#chmod +w "$DNSCACHE/root/servers/@"
-    if [ "$DNS_FORWARD" = "root" ] && [ -s "$CONFDIR/root.ip" ]; then
+    if [ "$DNS_FORWARD" = "root" ] && [ -s "$CONF_DIR/root.ip" ]; then
         # root for recursive resolver from root servers
-        cat "$CONFDIR/root.ip" > "$DNSCACHE/root/servers/@"
+        cat "$CONF_DIR/root.ip" > "$DNSCACHE/root/servers/@"
         echo 0 > "$DNSCACHE/env/FORWARDONLY"
         #chmod -w "$DNSCACHE/root/servers/@"
         cp -f /sbin/dns-update-script-mod /sbin/dns-update-script
@@ -167,10 +176,10 @@ setup_dnscache() {
         cp -f /sbin/dns-update-script-mod /sbin/dns-update-script
     fi
 
-    lg "Restarting dnscache"
+    log "Restarting dnscache"
     svc -t "$DNSCACHE"
     svc -u "$DNSCACHE"
-    lg "Complete setup dnscache"
+    log "Complete setup dnscache"
 }
 
 # add dns record to dynamic file
@@ -230,10 +239,10 @@ dns_mk() {
     # update DATA file
     cat "$STATIC" "$DYNAMIC" > "$DATA"
     # make data.cdb (if dns binaries installed)
-    if [ -x "$BINDIR/tinydns-data" ]; then
+    if [ -x "$BIN_DIR/tinydns-data" ]; then
         (
             cd "$DNSROOT/root"
-            "$BINDIR/tinydns-data" || lg "ERROR: data file failure"
+            "$BIN_DIR/tinydns-data" || log "ERROR: data file failure"
         )
     fi
 }
@@ -253,7 +262,7 @@ check_dup_name() {
 # create zone definitions
 # and add static records
 dns_static() {
-    lg "Request static zones setup"
+    log "Request static zones setup"
     # ZONE and RevZone definition
     # gw always points to TC_IP
     cat << EOF > "$STATIC"
@@ -296,7 +305,7 @@ EOF
     echo >> "$STATIC"
     echo "#DHCP controlled records" >> "$STATIC"
     dns_mk
-    lg "Complete static zones setup"
+    log "Complete static zones setup"
 }
 
 # scan dhcpd.conf to get static records
@@ -332,11 +341,11 @@ scan_leases() {
                 case $l_action in
                     "active")
                         ddns_add "$l_ip" "$l_name"
-                        lg "ddns_add $l_ip $l_name"
+                        log "ddns_add $l_ip $l_name"
                         ;;
                     "free")
                         ddns_del "$l_ip"
-                        dbg "ddns_del $l_ip"
+                        debug "ddns_del $l_ip"
                         ;;
                 esac
                 # clean lease vars
@@ -371,17 +380,17 @@ scan_leases() {
 #   $1 "stop" - kill running instace
 ddns_update() {
     # stop to avoid duplicate run
-    if [ -f "$RUNDIR/ddns-update.pid" ]; then
-        lg "killing ddns_update"
-        kill "$(cat "$RUNDIR/ddns-update.pid")"
-        rm -f "$RUNDIR/ddns-update.pid"
+    if [ -f "$RUN_DIR/ddns-update.pid" ]; then
+        log "killing ddns_update"
+        kill "$(cat "$RUN_DIR/ddns-update.pid")"
+        rm -f "$RUN_DIR/ddns-update.pid"
     fi
     # if stop request than we're done
     [ "$1" = "stop" ] && exit 0
 
     # log pid to file
-    echo $$ > "$RUNDIR/ddns-update.pid"
-    lg "DDNS-Update script started with pid $(cat "$RUNDIR/ddns-update.pid")"
+    echo $$ > "$RUN_DIR/ddns-update.pid"
+    log "DDNS-Update script started with pid $(cat "$RUN_DIR/ddns-update.pid")"
 
     local lastMod=0
     # flush dynamic records

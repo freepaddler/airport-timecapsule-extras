@@ -2,40 +2,43 @@
 
 . /mnt/Flash/extras/include
 
-trap 'lg "exiting..."; exit 0' INT TERM HUP
-lg "started for volumes: $DISKS"
+trap 'log "exiting..."; exit 0' INT TERM HUP
+log "started for volumes: $DISKS"
 
 while :; do
     for disk in $DISKS; do
         volume=$(getVolume "$disk")
-        d=$(hddGetDisk "$volume")
-        p=$(hddGetPartition "$volume")
-        u=$(hddGetUsers "$volume")
+        d="${volume%%:*}"
+        p="${volume#*:}"
+        p="${p%%:*}"
+        u="${volume##*:}"
         if [ -z "$d" ] || [ -z "$p" ] || [ -z "$u" ]; then
-            lg "skip $disk ($volume)"
+            log "skip $disk ($volume)"
             continue
         fi
-        if ! volumeIsMounted "/Volumes/$p"; then
-            lg "mounting: $volume"
-            error=""
+        if ! volumeIsMounted "/Volumes/$p" || [ "$u" -eq 0 ]; then
+            log "mounting: $volume"
             while [ "$u" -ne 0 ]; do
-                /usr/bin/acp rpc diskd.unuseVolume path:s:/Volumes/"$p" > /dev/null || lg "ERROR: failed to unuse $volume"
+                previousUsers="$u"
+                if ! /usr/bin/acp rpc diskd.unuseVolume path:s:/Volumes/"$p" > /dev/null; then
+                    log "ERROR: failed to unuse $volume"
+                    continue 2
+                fi
                 volume=$(getVolume "$disk")
-                u=$(hddGetUsers "$volume")
-                if [ -z "$u" ]; then
-                    error="1"
-                    break
+                u="${volume##*:}"
+                if [ -z "$u" ] || [ "$u" -ge "$previousUsers" ]; then
+                    log "ERROR: failed to reduce users for $disk ($previousUsers -> $u)"
+                    continue 2
                 fi
             done
-            if [ -z "$error" ]; then
-                /usr/bin/acp rpc diskd.useVolume path:s:/Volumes/"$p" > /dev/null || lg "ERROR: failed to mount $volume"
-                /sbin/atactl "$d" setidle "$DISK_IDLE_TIMEOUT" || lg "ERROR: failed to set DISK_IDLE_TIMEOUT for $d"
-                lg "mounted: $volume"
-            else
-                lg "ERROR: failed to remount disk $disk ($volume)"
+            if ! /usr/bin/acp rpc diskd.useVolume path:s:/Volumes/"$p" > /dev/null; then
+                log "ERROR: failed to mount $volume"
+                continue
             fi
+            /sbin/atactl "$d" setidle "$DISK_IDLE_TIMEOUT" || log "ERROR: failed to set DISK_IDLE_TIMEOUT for $d"
+            log "mounted: $volume"
         else
-            dbg "mounted: $volume"
+            debug "mounted: $volume"
         fi
     done
     sleep "$DISK_CHECK_TIMEOUT"

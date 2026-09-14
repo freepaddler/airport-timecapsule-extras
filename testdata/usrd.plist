@@ -1,0 +1,29 @@
+usrd=<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist SYSTEM "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+        <key>users</key>
+        <array>
+                <dict>
+                        <key>fileSharingAccess</key>
+                        <integer>0</integer>
+
+                        <key>name</key>
+                        <string>example-user</string>
+
+                        <key>password</key>
+                        <string>Example-Only-Password-1</string>
+                </dict>
+                <dict>
+                        <key>fileSharingAccess</key>
+                        <integer>1</integer>
+
+                        <key>name</key>
+                        <string>example-reader</string>
+
+                        <key>password</key>
+                        <string>Example-Only-Password-2</string>
+                </dict>
+        </array>
+</dict>
+</plist>
