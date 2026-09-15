@@ -31,7 +31,94 @@ SMB_CACHE_DIR="$MEM_DIR/samba/cache"
 SMB_PRIVATE_DIR="$MEM_DIR/samba/private"
 SMB_NCALRPC_DIR="$MEM_DIR/samba/ncalrpc"
 
+# NBNS configuration.
+NBNS_LOG_FILE="/dev/null"
+[ "$DEBUG" = 1 ] && NBNS_LOG_FILE="$SMB_LOG_DIR/nbns.log"
+
+# mDNS configuration.
+MDNS_LOG_FILE="/dev/null"
+[ "$DEBUG" = 1 ] && MDNS_LOG_FILE="$SMB_LOG_DIR/mdns.log"
+
 # Functions.
+# Stop our Samba, NBNS and mDNS processes using their runtime PID files.
+stop() {
+    local process pid pidFile attempt
+    for process in smbd nbns-advertiser mdns-advertiser; do
+        pidFile="$SMB_PID_DIR/$process.pid"
+        [ -f "$pidFile" ] || continue
+        pid=$(cat "$pidFile")
+        case "$pid" in
+            "" | *[!0-9]* | 0 | 1)
+                log "ERROR: invalid $process PID"
+                return 1
+                ;;
+        esac
+        log "Stopping $process (PID $pid)"
+        kill "$pid" 2> /dev/null || :
+        for attempt in 1 2 3 4 5; do
+            kill -0 "$pid" 2> /dev/null || break
+            sleep 1
+        done
+        if kill -0 "$pid" 2> /dev/null; then
+            log "$process still running; sending KILL"
+            kill -9 "$pid" 2> /dev/null || :
+        fi
+        rm -f "$pidFile" || {
+            log "ERROR: can't remove $process PID file"
+            return 1
+        }
+    done
+    return 0
+}
+
+# Publish SMB, AirPort and device information.
+# The advertiser itself stops Apple's mDNSResponder before taking over.
+startMDNS() {
+    local waMA raMA raM2 raSt raNA syFl syAP syVs srcv bjSd mdnsPid field
+    waMA=$(/usr/bin/acp -q waMA 2> /dev/null)
+    raMA=$(/usr/bin/acp -q raMA 2> /dev/null)
+    raM2=$(/sbin/ifconfig bwl1 2> /dev/null | sed -n 's/^[[:space:]]*ether[[:space:]]\([0-9A-Fa-f:]*\).*/\1/p')
+    raSt=$(/usr/bin/acp -A WiFi 2> /dev/null | sed -n 's/^[[:space:]]*raSt=\([^[:space:]]*\).*/\1/p' | sed -n '1p')
+    raNA=$(/usr/bin/acp -q raNA 2> /dev/null)
+    case "$raNA" in
+        true) raNA=1 ;;
+        false) raNA=0 ;;
+    esac
+    syFl=$(/usr/bin/acp -q syFl 2> /dev/null)
+    syAP=$(/usr/bin/acp -q syAP 2> /dev/null)
+    syVs=$(/usr/bin/acp -q syVs 2> /dev/null)
+    srcv=$(/usr/bin/acp -q srcv 2> /dev/null)
+    bjSd=$(/usr/bin/acp -q bjSd 2> /dev/null)
+    for field in "$waMA" "$raMA" "$raM2" "$raSt" "$raNA" "$syFl" "$syAP" "$syVs" "$srcv" "$bjSd"; do
+        if [ -z "$field" ]; then
+            log "ERROR: can't start mDNS: incomplete AirPort identity"
+            return 1
+        fi
+    done
+    syAP=$(printf '%d' "$syAP") && bjSd=$(printf '%d' "$bjSd") || {
+        log "ERROR: can't start mDNS: invalid AirPort numeric fields"
+        return 1
+    }
+
+    set -- "$BIN_DIR/mdns-advertiser" \
+        --instance "$BASE_NAME" --host "$BASE_NAME" --auto-ip \
+        --device-model "TimeCapsule8,119" --generated-airport-services \
+        --airport-wama "$waMA" --airport-rama "$raMA" --airport-ram2 "$raM2" \
+        --airport-rast "$raSt" --airport-rana "$raNA" \
+        --airport-syfl "$syFl" --airport-syap "$syAP" \
+        --airport-syvs "$syVs" --airport-srcv "$srcv" --airport-bjsd "$bjSd"
+    [ "$DEBUG" = 1 ] && set -- "$@" --debug-logging
+
+    log "Starting mDNS (Device Info, SMB and AirPort)"
+    "$@" >> "$MDNS_LOG_FILE" 2>&1 &
+    mdnsPid=$!
+    echo "$mdnsPid" > "$SMB_PID_DIR/mdns-advertiser.pid" || {
+        log "ERROR: can't save mDNS PID"
+        kill "$mdnsPid" 2> /dev/null || :
+        return 1
+    }
+}
+
 # Stop the native file servers before our smbd takes over.
 stopNativeSMB() {
     local process attempt
@@ -144,29 +231,10 @@ fi
 trap 'rm -f "$SMB_SETUP_LOCK_FILE"' 0
 trap 'exit 1' HUP INT TERM
 
-if [ -f "$SMB_PID_DIR/smbd.pid" ]; then
-    smbPid=$(cat "$SMB_PID_DIR/smbd.pid")
-    case "$smbPid" in
-        "" | *[!0-9]* | 0 | 1)
-            log "ERROR: Samba startup aborted: invalid smbd PID"
-            exit 1
-            ;;
-    esac
-    log "Stopping Samba (PID $smbPid)"
-    kill "$smbPid" 2> /dev/null || :
-    for attempt in 1 2 3 4 5; do
-        kill -0 "$smbPid" 2> /dev/null || break
-        sleep 1
-    done
-    if kill -0 "$smbPid" 2> /dev/null; then
-        log "Samba still running; sending KILL"
-        kill -9 "$smbPid" 2> /dev/null || :
-    fi
-    rm -f "$SMB_PID_DIR/smbd.pid" || {
-        log "ERROR: Samba startup aborted: can't remove smbd PID file"
-        exit 1
-    }
-fi
+stop || {
+    log "ERROR: Samba startup aborted: can't stop managed services"
+    exit 1
+}
 
 if [ -z "$SMB_DISK" ]; then
     log "Skip setup: SMB_DISK is not set"
@@ -292,3 +360,14 @@ log "Starting Samba"
     log "ERROR: Samba startup aborted: smbd failed to start"
     exit 1
 }
+
+log "Starting NBNS"
+"$BIN_DIR/nbns-advertiser" --name "$BASE_NAME" --auto-ip >> "$NBNS_LOG_FILE" 2>&1 &
+nbnsPid=$!
+echo "$nbnsPid" > "$SMB_PID_DIR/nbns-advertiser.pid" || {
+    log "ERROR: can't save NBNS PID"
+    kill "$nbnsPid" 2> /dev/null || :
+    exit 1
+}
+
+startMDNS || exit 1
