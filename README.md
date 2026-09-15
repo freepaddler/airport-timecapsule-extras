@@ -1,88 +1,163 @@
-# TC_airport_router
+**English** | [Русский](README.ru.md)
 
-## Описание
-Расширяет возможности Apple Time Capsule как домашнего маршрутизатора:
-1. Возможность добавить дополнительные опции в dhcpd server
-2. DNS сервер c обслуживанием локальной зоны с динамическим добавлением выданных dhcpd ip адресов
-3. Статические IPSec туннели
+# Airport Time Capsule Extras
 
-Не ломает стандартную функциональность утилиты Airport Utility, все сделанные на ней настройки применяются и используются как положено (если иное не указано в конфигурации).
+## Overview
 
-Нормально переживает перезагрузки TC
+Adds features to an Apple Time Capsule used as a home router:
 
-Проверялось только на TimeCapsule 802.11/ac прошивка 7.9.1
+1. Extra DHCP server options.
+2. A local DNS zone with automatic records for DHCP clients.
+3. DNS forwarding to upstream servers, including separate forwarders for specific zones.
+4. Static IPsec/ESP tunnels with manually configured SPI values and keys, without IKE negotiation.
+5. Persistent disk mounts: the internal disk stays mounted while still being able to spin down when idle.
+6. Samba 4 (SMB 2/3) as a replacement for the built-in file servers, with NBNS and mDNS for network discovery.
 
-## Установка 
-+ [root](https://habr.com/ru/post/501404/) доступ на TC 
-+ Распаковать архив `tinydns-earmv4-bin.zip` на встроенный hdd по пути `/Volumes/dk2/SharedRoot/tinydns-earmv4-bin` (`mkdir -p /Volumes/dk2 &&  mount_hfs /dev/dk2 /Volumes/dk2`)
-+ настроить конфигурацию в файле `tc/tc.conf`
-+ скопировать содержимое директории `tc` в `/mnt/Flash/tc/`
-+ установить ссылку `ln -s /mnt/Flash/tc/setup.sh /mnt/Flash/rc.local`
-+ запустить `/mnt/Flash/tc/setup.sh`
-+ вывод логов смотреть в `/var/log/tc`
+Settings and user accounts are still managed through AirPort Utility, unless overridden in the configuration. When Samba starts, it stops the built-in SMB and AFP servers. The mDNS advertiser replaces Apple's mDNSResponder and publishes SMB, AirPort and Device Info.
 
-## Настройка
-Самый простой и верный способ: после изменения любых настроек запустить `/mnt/Flash/tc/setup.sh`
+The setup survives Time Capsule reboots.
 
-### DHCP static leases
-+ Настраиваются через Airport Uitility
-+ Если fixed-address резеревируется на client-dhcp-id, то client-dhcp-id будет использоваться как hostname для этой записи в DNS
-+ Если fixed-address резервируется на MAC адрес, то такой хост не будет зарегистрирован в DNS. если нужна его регистрация в DNS - добавить его
-client-dhcp-id на тот же ip, что и MAC
+This project is for Time Capsule devices with an internal disk at `/Volumes/dk2`. Tested on a Time Capsule 802.11ac running firmware 7.9.1.
 
-### Настройка опций DHCP server
-в файле tc.conf:
-+ DHCPD_GLOBAL - глобальные опции (для всех скоупов)
-+ DHCPD_LAN - опции для скоупа локальной сети (НЕ гостевой) 
+## Installation
 
-Переменные должны быть multiline - одна опция на строку
+You need [root access to the Time Capsule](https://habr.com/ru/post/501404/) (guide in Russian).
 
-применение параметров:
+Files use fixed paths. There is no base directory setting:
+
+| In this repository | On the Time Capsule | Purpose |
+| --- | --- | --- |
+| `extras.conf` | `/mnt/Flash/extras.conf` | User settings |
+| `flash/rc.local` | `/mnt/Flash/rc.local` | Startup entry point |
+| `flash/extras/` | `/mnt/Flash/extras/` | Scripts and shared `include` file |
+| `hdd/extras/bin/` | `/Volumes/dk2/extras/bin/` | DNS, Samba, NBNS and mDNS binaries |
+
+1. Edit `extras.conf` and copy it to `/mnt/Flash/extras.conf`.
+2. Copy `flash/rc.local`, `flash/extras/` and `hdd/extras/` to the paths above. The internal disk must be mounted at `/Volumes/dk2`.
+3. Run `/mnt/Flash/extras/setup.sh`.
+
+`install.sh` copies the contents of `flash/` and `hdd/` to the SSH host `tc`. Copy `extras.conf` separately.
+
+The scripts create these directories at startup:
+
+- `/mnt/Flash/extras/conf/` — generated configuration files and DHCP leases.
+- `/mnt/Memory/extras/` — runtime copies of binaries, PID files, shared variables and temporary service data.
+- `/mnt/Locks/` — a RAM disk for Samba locks.
+- `/Volumes/dk2/extras/samba/private/` — Samba's persistent extended attribute database.
+
+Shared files live in `/Volumes/dk2/ShareRoot/Shared`. Personal folders live in `/Volumes/dk2/ShareRoot/Users/<username>`.
+
+## Configuration
+
+1. Edit the settings in `/mnt/Flash/extras.conf`.
+2. Run `/mnt/Flash/extras/setup.sh` to apply the changes.
+
+### Static DHCP leases
+
+- Configure reservations in AirPort Utility.
+- For a reservation using `client-dhcp-id`, that ID becomes the hostname in local DNS.
+- A reservation using only a MAC address does not create a DNS record. To add one, create a `client-dhcp-id` reservation for the same IP address.
+
+### DHCP server options
+
+In `/mnt/Flash/extras.conf`:
+
+- `DHCPD_GLOBAL` — options for all scopes.
+- `DHCPD_LAN` — options for the main LAN scope, not the guest network.
+
+Use multiline values, with one option per line.
+
+Apply the settings:
 
 ```sh
-/mnt/Flash/tc/bin/dhcpd.sh configure 
-/mnt/Flash/tc/bin/dhcpd.sh restart
+/mnt/Flash/extras/bin/dhcpd.sh configure
+/mnt/Flash/extras/bin/dhcpd.sh restart
 ```
 
-### Настройка DNS
-в файле tc.conf:
-+ ZONE - имя локальной DNS зоны (имя гостевой зоны будет guest.$ZONE)
-+ DNS_STATIC - статические записи в DNS (в формате https://cr.yp.to/djbdns/tinydns-data.html), multiline, одна запись на строку
-+ DNS_ACCESS - "внешние" сети, которые имеют право использовать наш DNS север, предназначение - сети на других концах туннелей. Формат записи сеть: `192.168` или `172.16.20`. Указываются в строке через пробел: `DNS_ACCESS="192.168 172.16.20"`
-+ DNS_FORWARD - тип работы резолвера
-    + root - рекурсивный резолвер с кэшированием, использующий ip адреса root серверов dns. (для получения/обновления адресов root серверов выполнить: `/mnt/Flash/tc/bin/dns.sh update_root`). Если выбран этот режим, а списка root.ip нет, то будет использоваться поведение по-умолчанию (DNS_FORWARD=)
-    + список ip адресов dns серверов (forwarder) - перенаправлять все запросы к указанным dns серверам (DNS_FORWARD="1.0.0.1 1.1.1.1")
-    + не задано (DNS_FORWARD=) - штатный режим работы Airport TC
-+ DNS_EXTERNAL - зоны, которые нужно явно нужно запрашивать у конкретных dns серверов, multiline, одна запись на строку
-    + `some.local.zone 192.168.1.1`
+### DNS
 
-применение параметров:
+In `/mnt/Flash/extras.conf`:
+
+- `ZONE` — the local DNS zone. The guest zone is `guest.$ZONE`.
+- `DNS_STATIC` — static records in [tinydns format](https://cr.yp.to/djbdns/tinydns-data.html), one per line.
+- `DNS_ACCESS` — remote networks allowed to use this DNS server, typically networks at the other end of a tunnel. Use space-separated network prefixes, for example `DNS_ACCESS="192.168 172.16.20"`.
+- `DNS_FORWARD` — resolver mode, described below.
+- `DNS_EXTERNAL` — zones that should use a specific DNS server, one per line. Example: `some.local.zone 192.168.1.1`.
+
+`DNS_FORWARD` supports three modes:
+
+| Value | Behavior |
+| --- | --- |
+| `root` | Recursive caching resolver using DNS root servers. Run `/mnt/Flash/extras/bin/dns.sh update_root` to get or update their addresses. If `root.ip` is missing, the default mode is used. |
+| `"1.0.0.1 1.1.1.1"` | Forward requests to the listed DNS servers. |
+| Empty | Use the Time Capsule's normal DNS behavior. |
+
+Apply the settings:
+
 ```sh
-/mnt/Flash/tc/bin/dns.sh configure
-/mnt/Flash/tc/bin/dns.sh setup_dnscache
+/mnt/Flash/extras/bin/dns.sh configure
+/mnt/Flash/extras/bin/dns.sh setup_dnscache
 ```
 
-### Настройка туннелей
-в файле tc.conf:
-+ tunnels - перечень туннелей через пробел: `tunnels="TUN1 TUN2"`
+### SMB and network discovery
 
-Для каждого туннеля TUNx:
-+ TUNx_PUB - публичный ip адрес удаленной стороны туннеля
-+ TUNx_IP - приватный ip адрес удаленной стороны туннеля
-+ TUNx_NET - сети, находящиеся на удаленной стороне туннеля в формате `"192.168.1.0/24 192.168.2.0/34"`
-+ TUNx_SPI_IN - идентификатор _входящего_ (по отношению к TC) ipsec SPI
-+ TUNx_KEY_IN - ключ шифрования ESP _входящего_ SPI
-+ TUNx_SPI_OUT - идентификатор _исходящего_ (по отношению к TC) ipsec SPI
-+ TUNx_KEY_OUT - ключ шифрования ESP _исходящего_ SPI
+In `/mnt/Flash/extras.conf`:
 
-применение параметров:
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `SMB_DISK` | `"dk2"` | Internal disk partition. An empty value disables Samba and its NBNS/mDNS advertisers. |
+| `SMB_GUEST` | `1` | `1` allows guests to read the `Shared` share; `0` disables guest access. |
+| `SMB_READ_USERS_HOME` | `1` | `1` gives read-only users read/write access to their personal folder; `0` limits them to reading the common share. |
+
+Only account-based disk access is supported. In AirPort Utility, select **With accounts** for shared disk security. **AirPort Password** and **Disk Password** modes are not supported.
+
+Manage usernames, passwords and file access permissions in AirPort Utility. Samba imports them when it starts:
+
+- **Read/write:** read and write access to the common share and the user's personal folder.
+- **Read-only:** read access to the common share. `SMB_READ_USERS_HOME` controls whether the user also gets a writable personal folder.
+- **No access:** the user is not created in Samba. If guest access is enabled, an unknown user can still connect as a guest and read the common share.
+
+Time Machine support is enabled only on personal shares (`[homes]`) through `fruit:time machine = yes`. Samba reports this capability over SMB using `vfs_fruit`. Time Machine is disabled on `Shared`, although that share also uses `vfs_fruit` for macOS compatibility.
+
+We deliberately leave `_adisk` advertisements disabled. This setup uses a connection to the personal SMB share and its Time Machine support, without a separate Bonjour disk announcement. NBNS answers NetBIOS name queries. mDNS publishes SMB, AirPort and Device Info (`TimeCapsule8,119`). AFP and printer advertisements are disabled.
+
+Apply the settings:
+
 ```sh
-/mnt/Flash/tc/bin/tunnels.sh
+/mnt/Flash/extras/bin/samba.sh
 ```
 
-Из гостевой сети туннели также будут доступны, поэтому _потребуется_ фильтровать трафик с гостевых сетей _на удаленной стороне туннеля_
+### Logs
 
-#### настройка туннеля на удаленной стороне
+- `/var/log/extras.log` — the main log. `log-watchd` checks its size every `LOG_FILE_SIZE_CHECK` seconds and moves it to `extras.log.old` when it reaches the threshold.
+- `/var/log/log.smbd` — Samba's log. Samba handles rotation to `log.smbd.old` itself.
+- `LOG_FILE_SIZE=512` sets the size threshold in KiB for both logs. `LOG_FILE_SIZE_CHECK=14400` checks the main log every four hours. The main log can grow beyond the threshold between checks.
+- `DEBUG=1` also writes `/var/log/nbns.log` and `/var/log/mdns.log`. These debug logs are not rotated. With `DEBUG=0`, advertiser output goes to `/dev/null`.
+
+### Tunnels
+
+In `/mnt/Flash/extras.conf`, list tunnel names separated by spaces: `tunnels="TUN1 TUN2"`.
+
+For each tunnel `TUNx`, set:
+
+- `TUNx_PUB` — the remote endpoint's public IP address.
+- `TUNx_IP` — the remote endpoint's private tunnel IP address.
+- `TUNx_NET` — remote networks, for example `"192.168.1.0/24 192.168.2.0/24"`.
+- `TUNx_SPI_IN` — incoming IPsec SPI, from the Time Capsule's perspective.
+- `TUNx_KEY_IN` — encryption key for the incoming ESP SPI.
+- `TUNx_SPI_OUT` — outgoing IPsec SPI.
+- `TUNx_KEY_OUT` — encryption key for the outgoing ESP SPI.
+
+Apply the settings:
+
+```sh
+/mnt/Flash/extras/bin/tunnels.sh
+```
+
+Tunnels are also reachable from the guest network. Filter guest traffic at the remote end of the tunnel.
+
+#### Remote endpoint setup
+
 ```sh
 ifconfig gifX create
 ifconfig gifX $TUNx_IP $TC_IP netmask 255.255.255.0
@@ -95,69 +170,69 @@ EOF
 route add $TC_NET $TC_IP
 ```
 
-где:
-+ $TC_IP - приватный (LAN) IP адрес Airport TC
-+ $TC_PUB - публичный IP адрес Airport TC
-+ $TC_NET - Airpot TC LAN network
+Here:
 
+- `$TC_IP` — the Time Capsule's private LAN IP address.
+- `$TC_PUB` — the Time Capsule's public IP address.
+- `$TC_NET` — the Time Capsule's LAN subnet.
 
 ## TODO
-+ не проверено при статической конфигурации публичного интерфейса
-+ надо б проверить как это делать с подключенной к TC/Airport usb флешки 
 
-## Заметки
+- Test a static IP configuration on the public interface.
+- Test external USB disks connected to the Time Capsule and work out how to support them. Use partition names as share names when adding this support.
+- Add printer support and mDNS printer advertisements.
+
+## Notes
 
 ### ifwatchd
-ifwatchd ждет окнчания выполнения запущенного if-up/if-down скрипта перед выполнением следующего, даже если события произошли на разных интерфейсах, поэтому используются дополнительные скрипты if-up-interface.sh
 
-### Туннели
-+ использовать только esp transport
-+ режим esp tunnel без gif интерфейса - просаживает пропускную способность входящего из туннеля трафика приблизительно в 10(!) раз
-+ режим esp tunnel c использованием gif интерфейса не работает, потому что в gif интерфейс попадает не деинкапсулированный входящий трафик из ipsec
-+ дополнительное использование ah - просаживает пропускную способность входящего из туннеля трафика приблизительно в 2 раза
+`ifwatchd` waits for each if-up/if-down script to finish before handling the next event, even for different interfaces. Extra `if-up-interface.sh` scripts are used to avoid blocking other events.
 
+### Tunnels
 
-### NetBSD cross-compile 
+- Use ESP transport mode.
+- In testing, ESP tunnel mode without a `gif` interface reduced incoming throughput by roughly 10 times.
+- ESP tunnel mode with a `gif` interface did not work: the interface received traffic before IPsec decapsulation.
+- Adding AH reduced incoming throughput by roughly half.
 
-Для запуска tinydns на TC нужно было собрать бинарники:
-+ **32bit**
-+ архитектура **earmv4**
-+ со **статически** линкованными библиотеками
+### NetBSD cross-compilation
 
-**ВАЖНО:** *в `/mnt/Flash` всего 1M места, туда мало что влезет, полученные 2 бинарника не влезли. Пытался собрать архиватор (gzip, bzip2, compress, unzip) - они получаются минимум 600k, а архив с бинарниками tinydns ~ 550k, поэтому бессмысленны (в базе TC архиваторов нет)*
+To run tinydns on the Time Capsule, the binaries were built with:
 
-Работало на NetBSD 9.0 и 9.2 x86_64 в UTM(qemu)
+- **32-bit** code.
+- **earmv4** architecture.
+- **Statically linked** libraries.
 
-В 6.0 нет нужной архитектуры для кросс-компиляции: `-m evbarm -a earmv4`
+**Flash space is limited:** `/mnt/Flash` has only about 1 MB, and the two binaries did not fit. Building an archive tool did not help: gzip, bzip2, compress and unzip binaries were at least 600 KB, while the compressed tinydns binaries were about 550 KB. The stock firmware has no archive tools.
 
-Запустить arm версии NetBSD не получилось, пробовал: UTM(qemu), Fusion
+The build worked on NetBSD 9.0 and 9.2 x86_64 in UTM (QEMU). In the original build experiments, NetBSD 6.0 did not provide the required `-m evbarm -a earmv4` target. Attempts to boot an ARM version of NetBSD in UTM (QEMU) or Fusion were unsuccessful.
 
-#### сборка окружения (в qemu 6-9 часов)
+#### Building the toolchain and system libraries
+
+This took 6–9 hours in QEMU.
 
 ```shell
 cd /usr/src
 ./build.sh list-arch # list available architectures
 LDSTATIC=-static; export LDSTATIC
-./build.sh -U -O ~/evbarm-earmv4 -j6 -m evbarm -a earmv4 tools  
+./build.sh -U -O ~/evbarm-earmv4 -j6 -m evbarm -a earmv4 tools
 ./build.sh -U -u -O ~/evbarm-earmv4 -f6 -m evbarm -a earmv4 distribution
 ```
 
-опционально (для сборки статично линкованными):
-* LDSTATIC=-static
-* или добавить в /etc/mk.conf
+For static linking, set `LDSTATIC=-static` in the environment or add it to `/etc/mk.conf`.
 
-### сборка того, что есть в `usr/src/` 
+### Building tools from `/usr/src/`
 
-Часть системных утилит можно просто собрать без pkgsrc:
+Some system utilities can be built without pkgsrc:
 
 ```shell
 cd /usr/src/{usr.bin,usr.sbin,external....}
 /root/evbarm-earmv4/tooldir.NetBSD-9.0-amd64/bin/nbmake-earmv4 install
 ```
 
-прочее - из портов
+Use pkgsrc for other packages.
 
-#### ручная установка портов
+#### Installing pkgsrc manually
 
 ```shell
 rm -rf /usr/pkgsrc
@@ -187,47 +262,50 @@ CONFIGURE_ENV+= CC_FOR_BUILD=${NATIVE_CC:Q}
 CONFIGURE_ENV+= ac_cv_file__dev_urandom=yes
 ```
 
-Дальше в /usr/pkgsrc/category/port и пробовать make. Результат в work.earmv4
+Run `make` in `/usr/pkgsrc/category/port`. Build output goes into `work.earmv4`.
 
-Для сборки БЕЗ кросс-компиляции: `make USE_CROSS_COMPILE=no`
+To build for the host instead, use `make USE_CROSS_COMPILE=no`.
 
-#### Разное
+#### Troubleshooting
 
-архитектуру бинарника и какие либы использует (static/dynamic) определяем командой `file`
+Use `file` to check a binary's architecture and whether it is statically or dynamically linked.
 
-Если при сборке пакета выполняются только что собранные бинарники, то они не выполнятся из-за разницы архитектур. В этом случае:
-1. собрать в текущей архитектуре
-2. в Makefile пакета (в distfiles) указать полный путь к только собранным файлам при вызове (добавляем NO_CHECKSUM=yes при вызове make)
-3. посмотреть примененные патчи, может какие-то можно выкинуть
+Some packages run newly built tools during their build. ARM tools cannot run directly on an x86_64 build host. In that case:
 
-Для сборки со статически линкованными библиотеками, если не работает LDSTATIC=-static добавлять строку `-static` при вызове компилятора:
-* в Makefile дистрибутива (в distfiles)
-* потом в package Makefile 
-* потом по цепочке *.mk файлов (брать из package Makefile)
+1. Build the tools for the host architecture first.
+2. In the package's source Makefile, use the full paths to those host tools. If modifying distfiles, pass `NO_CHECKSUM=yes` to `make`.
+3. Review the applied patches to see whether any are unnecessary.
 
+If `LDSTATIC=-static` has no effect, try adding `-static` to the compiler command. Check the upstream Makefile, the pkgsrc package Makefile and the `.mk` files it includes.
 
 ### Useful links
-+ djbdns:
-    + https://cr.yp.to/djbdns.html
-    + https://www.fefe.de/djbdns/
-    + http://www.lifewithdjbdns.org
-+ NetBSD cross-compile
-    + https://e17i.github.io/articles-timecapsule-crossbuild/
-    + https://ftp.netbsd.org/pub/pkgsrc/current/pkgsrc/doc/HOWTO-use-crosscompile
-    + https://ftp.netbsd.org/pub/pkgsrc/stable/pkgsrc/doc/HOWTO-dev-crosscompile
-    + https://www.netbsd.org/docs/guide/en/chap-build.html
-+ Airport access & management
-    + https://github.com/x56/airpyrt-tools
-    + https://github.com/samuelthomas2774/airport
 
-### Источник бинарников Samba
+**djbdns**
 
-В `hdd/extras/bin` находятся бинарники для Time Capsule 5-го поколения (NetBSD 6, ARM little-endian; статическая сборка `earmv4`):
+- https://cr.yp.to/djbdns.html
+- https://www.fefe.de/djbdns/
+- http://www.lifewithdjbdns.org
 
-| Бинарник | Путь в исходном репозитории | Источник |
+**NetBSD cross-compilation**
+
+- https://e17i.github.io/articles-timecapsule-crossbuild/
+- https://ftp.netbsd.org/pub/pkgsrc/current/pkgsrc/doc/HOWTO-use-crosscompile
+- https://ftp.netbsd.org/pub/pkgsrc/stable/pkgsrc/doc/HOWTO-dev-crosscompile
+- https://www.netbsd.org/docs/guide/en/chap-build.html
+
+**AirPort access and management**
+
+- https://github.com/x56/airpyrt-tools
+- https://github.com/samuelthomas2774/airport
+
+### Samba binary source
+
+`hdd/extras/bin` includes binaries for the 5th-generation Time Capsule (NetBSD 6, little-endian ARM; static `earmv4` builds):
+
+| Binary | Upstream repository path | Source |
 | --- | --- | --- |
 | `smbd` | `bin/samba4/smbd` | TimeCapsuleSMB v2.2.9 |
 | `mdns-advertiser` | `bin/mdns/mdns-advertiser` | TimeCapsuleSMB v2.2.9 |
 | `nbns-advertiser` | `bin/nbns/nbns-advertiser` | TimeCapsuleSMB v2.2.9 |
 
-Бинарники взяты из релиза [TimeCapsuleSMB v2.2.9](https://github.com/jamesyc/TimeCapsuleSMB/releases/tag/v2.2.9). В этом релизе NT-хеши паролей вычисляет `mdns-advertiser`.
+The binaries come from [TimeCapsuleSMB v2.2.9](https://github.com/jamesyc/TimeCapsuleSMB/releases/tag/v2.2.9). In this release, `mdns-advertiser` also generates NT password hashes.
