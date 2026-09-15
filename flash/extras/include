@@ -13,7 +13,6 @@
 FLASH_DIR="/mnt/Flash/extras"
 MEM_DIR="/mnt/Memory/extras"
 HDD_MOUNT="/Volumes/dk2"
-SMB_ROOT="$HDD_MOUNT/ShareRoot"
 HDD_DIR="$HDD_MOUNT/extras"
 SH_DIR="$FLASH_DIR/bin"
 
@@ -45,13 +44,13 @@ LOG_FILE="/var/log/extras.log"
 LOG_FILE_OLD="$LOG_FILE.old"
 
 # name of logging script
-name=$(basename "$0")
+EXTRAS_LOG_SCRIPT_NAME=$(basename "$0")
 
 # function to log message to log file
 # parameters
 #   $1 message to log
 log() {
-    echo -e "$(date +"%Y.%m.%d %T") [$name] $1" >> "$LOG_FILE"
+    echo -e "$(date +"%Y.%m.%d %T") [$EXTRAS_LOG_SCRIPT_NAME] $1" >> "$LOG_FILE"
 }
 
 # Debug messages use the same log, only when DEBUG=1.

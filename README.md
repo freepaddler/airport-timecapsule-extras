@@ -219,4 +219,15 @@ CONFIGURE_ENV+= ac_cv_file__dev_urandom=yes
 + Airport access & management
     + https://github.com/x56/airpyrt-tools
     + https://github.com/samuelthomas2774/airport
-    + https://github.com/samuelthomas2774/airport
+
+### Источник бинарников Samba
+
+В `hdd/extras/bin` находятся бинарники для Time Capsule 5-го поколения (NetBSD 6, ARM little-endian; статическая сборка `earmv4`):
+
+| Бинарник | Путь в исходном репозитории | Источник |
+| --- | --- | --- |
+| `smbd` | `bin/samba4/smbd` | TimeCapsuleSMB v2.2.9 |
+| `mdns-advertiser` | `bin/mdns/mdns-advertiser` | TimeCapsuleSMB v2.2.9 |
+| `nbns-advertiser` | `bin/nbns/nbns-advertiser` | TimeCapsuleSMB v2.2.9 |
+
+Бинарники взяты из релиза [TimeCapsuleSMB v2.2.9](https://github.com/jamesyc/TimeCapsuleSMB/releases/tag/v2.2.9). В этом релизе NT-хеши паролей вычисляет `mdns-advertiser`.

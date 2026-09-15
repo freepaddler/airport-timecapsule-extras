@@ -37,22 +37,22 @@ else
     log "ERROR: failed to create /usr/bin/grep"
 fi
 
-# Read the base station name before starting interface handlers.
-if baseNameProperty=$(/usr/bin/acp -A syNm); then
-    case "$baseNameProperty" in
-        syNm=*)
-            baseName=$(acpGetValue "$baseNameProperty")
-            if [ -n "$baseName" ]; then
-                set_var BASE_NAME "$baseName"
-            else
-                log "ERROR: acp returned an empty base station name"
-            fi
-            ;;
-        *) log "ERROR: unexpected acp syNm response" ;;
-    esac
-else
-    log "ERROR: failed to read base station name"
-fi
+# Wait for the base station name before starting interface handlers.
+while :; do
+    if baseNameProperty=$(/usr/bin/acp -A syNm 2> /dev/null); then
+        case "$baseNameProperty" in
+            syNm=*)
+                baseName=$(acpGetValue "$baseNameProperty")
+                if [ -n "$baseName" ]; then
+                    set_var BASE_NAME "$baseName"
+                    break
+                fi
+                ;;
+        esac
+    fi
+    log "Waiting for ACP base station name"
+    sleep 1
+done
 
 # launch interface changes watcher process
 # on the start time it checks unterface state

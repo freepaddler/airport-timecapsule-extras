@@ -44,4 +44,7 @@ log "Setup dhcpd"
 # update dns fixed-address records
 "$SH_DIR/dns.sh" configure
 
+log "Setup Samba"
+"$SH_DIR/samba.sh" &
+
 exit 0

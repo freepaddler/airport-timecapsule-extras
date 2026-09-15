@@ -37,8 +37,12 @@ while :; do
             fi
             /sbin/atactl "$d" setidle "$DISK_IDLE_TIMEOUT" || log "ERROR: failed to set DISK_IDLE_TIMEOUT for $d"
             log "mounted: $volume"
+            if [ "$p" = "$SMB_DISK" ]; then
+                log "Setup Samba"
+                "$SH_DIR/samba.sh" &
+            fi
         else
-            debug "mounted: $volume"
+            debug "mounted already: $volume"
         fi
     done
     sleep "$DISK_CHECK_TIMEOUT"
